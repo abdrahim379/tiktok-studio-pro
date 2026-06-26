@@ -180,22 +180,24 @@ with st.sidebar:
 st.title("🎬 TikTok Studio Pro")
 st.markdown("---")
 
-tab_names = []
-tab_keys = []
-for key, label in FEATURE_LABELS.items():
-    if key in perms:
-        tab_names.append(label)
-        tab_keys.append(key)
+has_dl   = "downloader" in perms
+has_var  = "variants" in perms
+has_meta = "metadata" in perms
+has_fs   = "find_similar" in perms
 
-if is_admin:
-    tab_names.append("⚙️ Admin Dashboard")
-    tab_keys.append("admin")
+tab_names = []
+if has_dl:   tab_names.append("📥 TikTok Downloader")
+if has_var:  tab_names.append("🎛️ Variant Generator")
+if has_meta: tab_names.append("🔄 Refresh Metadata")
+if has_fs:   tab_names.append("🔍 Find Similar")
+if is_admin: tab_names.append("⚙️ Admin Dashboard")
 
 if not tab_names:
     st.warning("You don't have access to any features. Contact the admin.")
     st.stop()
 
-tabs = st.tabs(tab_names)
+all_tabs = st.tabs(tab_names)
+_tab_idx = 0
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1249,18 +1251,28 @@ def render_admin():
 
 
 # ══════════════════════════════════════════════════════════════════════
-# RENDER ACTIVE TABS
+# RENDER ACTIVE TABS (explicit — avoids Streamlit loop rendering bugs)
 # ══════════════════════════════════════════════════════════════════════
-TAB_RENDERERS = {
-    "downloader": render_downloader,
-    "variants": render_variants,
-    "metadata": render_metadata,
-    "find_similar": render_find_similar,
-    "admin": render_admin,
-}
+if has_dl:
+    with all_tabs[_tab_idx]:
+        render_downloader()
+    _tab_idx += 1
 
-for i, key in enumerate(tab_keys):
-    with tabs[i]:
-        renderer = TAB_RENDERERS.get(key)
-        if renderer:
-            renderer()
+if has_var:
+    with all_tabs[_tab_idx]:
+        render_variants()
+    _tab_idx += 1
+
+if has_meta:
+    with all_tabs[_tab_idx]:
+        render_metadata()
+    _tab_idx += 1
+
+if has_fs:
+    with all_tabs[_tab_idx]:
+        render_find_similar()
+    _tab_idx += 1
+
+if is_admin:
+    with all_tabs[_tab_idx]:
+        render_admin()
