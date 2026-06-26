@@ -83,13 +83,6 @@ st.set_page_config(page_title="TikTok Studio Pro", page_icon="🎬", layout="wid
 
 st.markdown("""
 <style>
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px; padding: 0 24px;
-        background-color: #1a1a1a; border-radius: 10px 10px 0 0;
-        color: white; font-weight: 600; font-size: 16px;
-    }
-    .stTabs [aria-selected="true"] { background-color: #ee0a78 !important; }
     .login-box {
         max-width: 400px; margin: 80px auto; padding: 40px;
         border-radius: 16px; border: 1px solid #333;
@@ -175,7 +168,7 @@ with st.sidebar:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════
-# BUILD TABS BASED ON PERMISSIONS
+# SIDEBAR NAVIGATION (replaces tabs — more reliable on Streamlit Cloud)
 # ══════════════════════════════════════════════════════════════════════
 st.title("🎬 TikTok Studio Pro")
 st.markdown("---")
@@ -185,19 +178,20 @@ has_var  = "variants" in perms
 has_meta = "metadata" in perms
 has_fs   = "find_similar" in perms
 
-tab_names = []
-if has_dl:   tab_names.append("📥 TikTok Downloader")
-if has_var:  tab_names.append("🎛️ Variant Generator")
-if has_meta: tab_names.append("🔄 Refresh Metadata")
-if has_fs:   tab_names.append("🔍 Find Similar")
-if is_admin: tab_names.append("⚙️ Admin Dashboard")
+page_options = []
+if has_dl:   page_options.append("📥 TikTok Downloader")
+if has_var:  page_options.append("🎛️ Variant Generator")
+if has_meta: page_options.append("🔄 Refresh Metadata")
+if has_fs:   page_options.append("🔍 Find Similar")
+if is_admin: page_options.append("⚙️ Admin Dashboard")
 
-if not tab_names:
+if not page_options:
     st.warning("You don't have access to any features. Contact the admin.")
     st.stop()
 
-all_tabs = st.tabs(tab_names)
-_tab_idx = 0
+with st.sidebar:
+    st.markdown("---")
+    current_page = st.radio("Navigation", page_options, key="nav_page")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1107,159 +1101,142 @@ def render_find_similar():
 
 
 # ══════════════════════════════════════════════════════════════════════
-# RENDER ACTIVE TABS
+# RENDER PAGE BASED ON SIDEBAR SELECTION
 # ══════════════════════════════════════════════════════════════════════
-if has_dl:
-    with all_tabs[_tab_idx]:
-        render_downloader()
-    _tab_idx += 1
+if current_page == "📥 TikTok Downloader":
+    render_downloader()
 
-if has_var:
-    with all_tabs[_tab_idx]:
-        render_variants()
-    _tab_idx += 1
+elif current_page == "🎛️ Variant Generator":
+    render_variants()
 
-if has_meta:
-    with all_tabs[_tab_idx]:
-        render_metadata()
-    _tab_idx += 1
+elif current_page == "🔄 Refresh Metadata":
+    render_metadata()
 
-if has_fs:
-    with all_tabs[_tab_idx]:
-        render_find_similar()
-    _tab_idx += 1
+elif current_page == "🔍 Find Similar":
+    render_find_similar()
 
-# ──────────────────────────────────────────────────────────────────────
-# ADMIN DASHBOARD — fully inlined (no function wrapper, no st.form)
-# ──────────────────────────────────────────────────────────────────────
-if is_admin:
-    with all_tabs[_tab_idx]:
-        st.header("⚙️ Admin Dashboard")
-        _adb = load_db()
+elif current_page == "⚙️ Admin Dashboard":
+    st.header("⚙️ Admin Dashboard")
+    _adb = load_db()
 
-        # ── 1. API Settings ──
-        st.subheader("🔑 API Settings")
-        _api_key = st.text_input("SerpAPI Key (for Find Similar)",
-                                  value=_adb.get("settings", {}).get("serpapi_key", ""),
-                                  type="password",
-                                  help="Get free key at https://serpapi.com/",
-                                  key="adm_serpapi")
-        if st.button("💾 Save API Key", key="adm_save_api", use_container_width=True):
-            if "settings" not in _adb:
-                _adb["settings"] = {}
-            _adb["settings"]["serpapi_key"] = _api_key
-            save_db(_adb)
-            st.success("✅ API key saved!")
+    st.subheader("🔑 API Settings")
+    _api_key = st.text_input("SerpAPI Key (for Find Similar)",
+                              value=_adb.get("settings", {}).get("serpapi_key", ""),
+                              type="password",
+                              help="Get free key at https://serpapi.com/",
+                              key="adm_serpapi")
+    if st.button("💾 Save API Key", key="adm_save_api", use_container_width=True):
+        if "settings" not in _adb:
+            _adb["settings"] = {}
+        _adb["settings"]["serpapi_key"] = _api_key
+        save_db(_adb)
+        st.success("✅ API key saved!")
 
-        st.markdown("---")
+    st.markdown("---")
 
-        # ── 2. All Users ──
-        st.subheader("👥 All Users")
-        _users = _adb["users"]
-        _tbl = []
-        for _uid, _u in _users.items():
-            _tbl.append({
-                "Name": _u["name"],
-                "Email": _u["email"],
-                "Role": _u["role"],
-                "Access": ", ".join(FEATURE_LABELS.get(p, p) for p in _u["permissions"]),
-                "Created": _u.get("created", "N/A"),
-            })
-        st.dataframe(_tbl, use_container_width=True, hide_index=True)
+    st.subheader("👥 All Users")
+    _users = _adb["users"]
+    _tbl = []
+    for _uid, _u in _users.items():
+        _tbl.append({
+            "Name": _u["name"],
+            "Email": _u["email"],
+            "Role": _u["role"],
+            "Access": ", ".join(FEATURE_LABELS.get(p, p) for p in _u["permissions"]),
+            "Created": _u.get("created", "N/A"),
+        })
+    st.dataframe(_tbl, use_container_width=True, hide_index=True)
 
-        st.markdown("---")
+    st.markdown("---")
 
-        # ── 3. Add New User ──
-        st.subheader("➕ Add New User")
-        _ac1, _ac2 = st.columns(2)
-        with _ac1:
-            _new_name = st.text_input("Full Name", key="adm_name")
-            _new_email = st.text_input("Email (used for login)", key="adm_email")
-        with _ac2:
-            _new_pw = st.text_input("Password", type="password", key="adm_pw")
-            _new_perms = st.multiselect("Grant access to:",
-                                         options=list(FEATURE_LABELS.keys()),
-                                         format_func=lambda x: FEATURE_LABELS[x],
-                                         default=["downloader"],
-                                         key="adm_perms")
-        if st.button("➕ Add User", key="adm_add_btn", use_container_width=True):
-            if not _new_name or not _new_email or not _new_pw:
-                st.error("All fields are required.")
-            elif any(_u["email"] == _new_email for _u in _users.values()):
-                st.error(f"User with email '{_new_email}' already exists.")
-            else:
-                _nuid = f"user_{uuid.uuid4().hex[:8]}"
-                _adb["users"][_nuid] = {
-                    "name": _new_name,
-                    "email": _new_email,
-                    "password_hash": hash_pw(_new_pw),
-                    "role": "user",
-                    "permissions": _new_perms,
-                    "created": datetime.datetime.now().strftime("%Y-%m-%d"),
-                }
-                save_db(_adb)
-                st.success(f"✅ User **{_new_name}** ({_new_email}) added!")
-                st.rerun()
-
-        st.markdown("---")
-
-        # ── 4. Edit / Remove User ──
-        st.subheader("✏️ Edit / Remove User")
-        _non_admin = {uid: u for uid, u in _users.items() if u["role"] != "admin"}
-        if _non_admin:
-            _euid = st.selectbox("Select user to edit:",
-                                  options=list(_non_admin.keys()),
-                                  format_func=lambda x: f"{_users[x]['name']} ({_users[x]['email']})",
-                                  key="adm_edit_sel")
-            _eu = _users[_euid]
-            _eperms = st.multiselect("Permissions:",
-                                      options=list(FEATURE_LABELS.keys()),
-                                      format_func=lambda x: FEATURE_LABELS[x],
-                                      default=_eu["permissions"],
-                                      key="adm_edit_perms")
-            _epw = st.text_input("New password (leave blank to keep current)",
-                                  type="password", key="adm_edit_pw")
-            _ec1, _ec2 = st.columns(2)
-            with _ec1:
-                if st.button("💾 Save Changes", key="adm_save_user", use_container_width=True):
-                    _adb["users"][_euid]["permissions"] = _eperms
-                    if _epw:
-                        _adb["users"][_euid]["password_hash"] = hash_pw(_epw)
-                    save_db(_adb)
-                    st.success(f"✅ Updated {_eu['name']}")
-                    st.rerun()
-            with _ec2:
-                if st.button("🗑️ Delete User", key="adm_del_user", use_container_width=True):
-                    del _adb["users"][_euid]
-                    save_db(_adb)
-                    st.success(f"🗑️ Deleted {_eu['name']}")
-                    st.rerun()
+    st.subheader("➕ Add New User")
+    _ac1, _ac2 = st.columns(2)
+    with _ac1:
+        _new_name = st.text_input("Full Name", key="adm_name")
+        _new_email = st.text_input("Email (used for login)", key="adm_email")
+    with _ac2:
+        _new_pw = st.text_input("Password", type="password", key="adm_pw")
+        _new_perms = st.multiselect("Grant access to:",
+                                     options=list(FEATURE_LABELS.keys()),
+                                     format_func=lambda x: FEATURE_LABELS[x],
+                                     default=["downloader"],
+                                     key="adm_perms")
+    if st.button("➕ Add User", key="adm_add_btn", use_container_width=True):
+        if not _new_name or not _new_email or not _new_pw:
+            st.error("All fields are required.")
+        elif any(_u["email"] == _new_email for _u in _users.values()):
+            st.error(f"User with email '{_new_email}' already exists.")
         else:
-            st.info("No users added yet. Use the form above to add one.")
+            _nuid = f"user_{uuid.uuid4().hex[:8]}"
+            _adb["users"][_nuid] = {
+                "name": _new_name,
+                "email": _new_email,
+                "password_hash": hash_pw(_new_pw),
+                "role": "user",
+                "permissions": _new_perms,
+                "created": datetime.datetime.now().strftime("%Y-%m-%d"),
+            }
+            save_db(_adb)
+            st.success(f"✅ User **{_new_name}** ({_new_email}) added!")
+            st.rerun()
 
-        st.markdown("---")
+    st.markdown("---")
 
-        # ── 5. Backup & Restore ──
-        st.subheader("💾 Backup & Restore")
-        _bk1, _bk2 = st.columns(2)
-        with _bk1:
-            st.markdown("**Export** — download all users & settings.")
-            _dbj = json.dumps(_adb, indent=2)
-            st.download_button("⬇️ Download Backup", data=_dbj,
-                               file_name=f"backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                               mime="application/json", key="adm_bk_dl")
-        with _bk2:
-            st.markdown("**Import** — restore from backup.")
-            _rfile = st.file_uploader("Upload backup JSON", type=["json"], key="adm_bk_up")
-            if _rfile:
-                try:
-                    _rd = json.loads(_rfile.getvalue().decode())
-                    if "users" in _rd:
-                        if st.button("✅ Restore This Backup", key="adm_bk_restore", use_container_width=True):
-                            save_db(_rd)
-                            st.success("✅ Restored!")
-                            st.rerun()
-                    else:
-                        st.error("Invalid backup file.")
-                except Exception as e:
-                    st.error(f"Failed: {e}")
+    st.subheader("✏️ Edit / Remove User")
+    _non_admin = {uid: u for uid, u in _users.items() if u["role"] != "admin"}
+    if _non_admin:
+        _euid = st.selectbox("Select user to edit:",
+                              options=list(_non_admin.keys()),
+                              format_func=lambda x: f"{_users[x]['name']} ({_users[x]['email']})",
+                              key="adm_edit_sel")
+        _eu = _users[_euid]
+        _eperms = st.multiselect("Permissions:",
+                                  options=list(FEATURE_LABELS.keys()),
+                                  format_func=lambda x: FEATURE_LABELS[x],
+                                  default=_eu["permissions"],
+                                  key="adm_edit_perms")
+        _epw = st.text_input("New password (leave blank to keep current)",
+                              type="password", key="adm_edit_pw")
+        _ec1, _ec2 = st.columns(2)
+        with _ec1:
+            if st.button("💾 Save Changes", key="adm_save_user", use_container_width=True):
+                _adb["users"][_euid]["permissions"] = _eperms
+                if _epw:
+                    _adb["users"][_euid]["password_hash"] = hash_pw(_epw)
+                save_db(_adb)
+                st.success(f"✅ Updated {_eu['name']}")
+                st.rerun()
+        with _ec2:
+            if st.button("🗑️ Delete User", key="adm_del_user", use_container_width=True):
+                del _adb["users"][_euid]
+                save_db(_adb)
+                st.success(f"🗑️ Deleted {_eu['name']}")
+                st.rerun()
+    else:
+        st.info("No users added yet. Use the form above to add one.")
+
+    st.markdown("---")
+
+    st.subheader("💾 Backup & Restore")
+    _bk1, _bk2 = st.columns(2)
+    with _bk1:
+        st.markdown("**Export** — download all users & settings.")
+        _dbj = json.dumps(_adb, indent=2)
+        st.download_button("⬇️ Download Backup", data=_dbj,
+                           file_name=f"backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                           mime="application/json", key="adm_bk_dl")
+    with _bk2:
+        st.markdown("**Import** — restore from backup.")
+        _rfile = st.file_uploader("Upload backup JSON", type=["json"], key="adm_bk_up")
+        if _rfile:
+            try:
+                _rd = json.loads(_rfile.getvalue().decode())
+                if "users" in _rd:
+                    if st.button("✅ Restore This Backup", key="adm_bk_restore", use_container_width=True):
+                        save_db(_rd)
+                        st.success("✅ Restored!")
+                        st.rerun()
+                else:
+                    st.error("Invalid backup file.")
+            except Exception as e:
+                st.error(f"Failed: {e}")
