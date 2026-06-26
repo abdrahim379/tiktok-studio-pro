@@ -127,7 +127,6 @@ if not st.session_state.authenticated:
             st.error("Invalid email or password.")
 
     st.markdown("</div>", unsafe_allow_html=True)
-    st.caption("Default admin login: `admin` / `admin123` — change it after first login.")
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1110,136 +1109,143 @@ def render_find_similar():
 # ──────────────────────────────────────────────────────────────────────
 def render_admin():
     st.header("⚙️ Admin Dashboard")
+    db = load_db()
 
-    admin_tab1, admin_tab2, admin_tab3 = st.tabs(["👥 Users", "🔑 Settings", "💾 Backup"])
+    # ── API Settings ──────────────────────────────────────────────
+    st.subheader("🔑 API Settings")
+    with st.form("admin_settings_form"):
+        serpapi_key = st.text_input("SerpAPI Key (for Find Similar)",
+                                    value=db.get("settings", {}).get("serpapi_key", ""),
+                                    type="password",
+                                    help="Get free key at https://serpapi.com/")
+        settings_btn = st.form_submit_button("💾 Save API Key", use_container_width=True)
+    if settings_btn:
+        if "settings" not in db:
+            db["settings"] = {}
+        db["settings"]["serpapi_key"] = serpapi_key
+        save_db(db)
+        st.success("✅ API key saved!")
 
-    # ── Users Management ──
-    with admin_tab1:
-        db = load_db()
-        users = db["users"]
+    st.markdown("---")
 
-        st.subheader("Current Users")
-        user_data_table = []
-        for uid, u in users.items():
-            user_data_table.append({
-                "ID": uid,
-                "Name": u["name"],
-                "Email": u["email"],
-                "Role": u["role"],
-                "Access": ", ".join(u["permissions"]),
-                "Created": u.get("created", "N/A"),
-            })
-        st.dataframe(user_data_table, use_container_width=True)
+    # ── Current Users Table ───────────────────────────────────────
+    st.subheader("👥 All Users")
+    users = db["users"]
+    user_data_table = []
+    for uid, u in users.items():
+        user_data_table.append({
+            "Name": u["name"],
+            "Email": u["email"],
+            "Role": u["role"],
+            "Access": ", ".join(FEATURE_LABELS.get(p, p) for p in u["permissions"]),
+            "Created": u.get("created", "N/A"),
+        })
+    st.dataframe(user_data_table, use_container_width=True, hide_index=True)
 
-        st.markdown("---")
-        st.subheader("Add New User")
-        with st.form("add_user_form"):
-            new_name = st.text_input("Name")
-            new_email = st.text_input("Email")
-            new_pw = st.text_input("Password", type="password")
-            new_perms = st.multiselect("Permissions", options=list(FEATURE_LABELS.keys()),
+    st.markdown("---")
+
+    # ── Add New User ──────────────────────────────────────────────
+    st.subheader("➕ Add New User")
+    with st.form("admin_add_user_form"):
+        au_col1, au_col2 = st.columns(2)
+        with au_col1:
+            new_name = st.text_input("Full Name", key="admin_new_name")
+            new_email = st.text_input("Email (used for login)", key="admin_new_email")
+        with au_col2:
+            new_pw = st.text_input("Password", type="password", key="admin_new_pw")
+            new_perms = st.multiselect("Grant access to:",
+                                        options=list(FEATURE_LABELS.keys()),
                                         format_func=lambda x: FEATURE_LABELS[x],
-                                        default=["downloader"])
-            add_btn = st.form_submit_button("➕ Add User", use_container_width=True)
+                                        default=["downloader"],
+                                        key="admin_new_perms")
+        add_btn = st.form_submit_button("➕ Add User", use_container_width=True)
 
-        if add_btn:
-            if not new_name or not new_email or not new_pw:
-                st.error("All fields are required.")
-            elif any(u["email"] == new_email for u in users.values()):
-                st.error(f"User with email '{new_email}' already exists.")
-            else:
-                uid = f"user_{uuid.uuid4().hex[:8]}"
-                db["users"][uid] = {
-                    "name": new_name,
-                    "email": new_email,
-                    "password_hash": hash_pw(new_pw),
-                    "role": "user",
-                    "permissions": new_perms,
-                    "created": datetime.datetime.now().strftime("%Y-%m-%d"),
-                }
-                save_db(db)
-                st.success(f"✅ User **{new_name}** ({new_email}) added with access to: {', '.join(FEATURE_LABELS[p] for p in new_perms)}")
-                st.rerun()
-
-        st.markdown("---")
-        st.subheader("Edit / Remove User")
-        non_admin_users = {uid: u for uid, u in users.items() if u["role"] != "admin"}
-        if non_admin_users:
-            edit_uid = st.selectbox("Select user", options=list(non_admin_users.keys()),
-                                    format_func=lambda x: f"{users[x]['name']} ({users[x]['email']})")
-            edit_user = users[edit_uid]
-
-            with st.form("edit_user_form"):
-                edit_perms = st.multiselect("Permissions", options=list(FEATURE_LABELS.keys()),
-                                            format_func=lambda x: FEATURE_LABELS[x],
-                                            default=edit_user["permissions"],
-                                            key="edit_perms")
-                edit_new_pw = st.text_input("New password (leave blank to keep current)", type="password", key="edit_pw")
-                col_save, col_del = st.columns(2)
-                with col_save:
-                    save_btn = st.form_submit_button("💾 Save Changes")
-                with col_del:
-                    del_btn = st.form_submit_button("🗑️ Delete User")
-
-            if save_btn:
-                db["users"][edit_uid]["permissions"] = edit_perms
-                if edit_new_pw:
-                    db["users"][edit_uid]["password_hash"] = hash_pw(edit_new_pw)
-                save_db(db)
-                st.success(f"✅ Updated {edit_user['name']}")
-                st.rerun()
-            if del_btn:
-                del db["users"][edit_uid]
-                save_db(db)
-                st.success(f"🗑️ Deleted {edit_user['name']}")
-                st.rerun()
+    if add_btn:
+        if not new_name or not new_email or not new_pw:
+            st.error("All fields are required.")
+        elif any(u["email"] == new_email for u in users.values()):
+            st.error(f"User with email '{new_email}' already exists.")
         else:
-            st.info("No users to manage. Add one above.")
-
-    # ── Settings ──
-    with admin_tab2:
-        db = load_db()
-        st.subheader("API Keys")
-        with st.form("settings_form"):
-            serpapi_key = st.text_input("SerpAPI Key (for Find Similar)",
-                                        value=db.get("settings", {}).get("serpapi_key", ""),
-                                        type="password",
-                                        help="Get free key at https://serpapi.com/")
-            settings_btn = st.form_submit_button("💾 Save Settings", use_container_width=True)
-        if settings_btn:
-            if "settings" not in db:
-                db["settings"] = {}
-            db["settings"]["serpapi_key"] = serpapi_key
+            new_uid = f"user_{uuid.uuid4().hex[:8]}"
+            db["users"][new_uid] = {
+                "name": new_name,
+                "email": new_email,
+                "password_hash": hash_pw(new_pw),
+                "role": "user",
+                "permissions": new_perms,
+                "created": datetime.datetime.now().strftime("%Y-%m-%d"),
+            }
             save_db(db)
-            st.success("✅ Settings saved!")
+            st.success(f"✅ User **{new_name}** ({new_email}) added!")
+            st.rerun()
 
-    # ── Backup & Restore ──
-    with admin_tab3:
-        db = load_db()
-        st.subheader("Export User Database")
-        st.markdown("Download a backup of all users and settings. Use this to restore after a server restart.")
+    st.markdown("---")
+
+    # ── Edit / Remove User ────────────────────────────────────────
+    st.subheader("✏️ Edit / Remove User")
+    non_admin_users = {uid: u for uid, u in users.items() if u["role"] != "admin"}
+    if non_admin_users:
+        edit_uid = st.selectbox("Select user to edit:",
+                                options=list(non_admin_users.keys()),
+                                format_func=lambda x: f"{users[x]['name']} ({users[x]['email']})",
+                                key="admin_edit_select")
+        edit_user = users[edit_uid]
+
+        with st.form("admin_edit_user_form"):
+            edit_perms = st.multiselect("Permissions:",
+                                        options=list(FEATURE_LABELS.keys()),
+                                        format_func=lambda x: FEATURE_LABELS[x],
+                                        default=edit_user["permissions"],
+                                        key="admin_edit_perms")
+            edit_new_pw = st.text_input("New password (leave blank to keep current)",
+                                        type="password", key="admin_edit_pw")
+            col_save, col_del = st.columns(2)
+            with col_save:
+                save_btn = st.form_submit_button("💾 Save Changes")
+            with col_del:
+                del_btn = st.form_submit_button("🗑️ Delete User")
+
+        if save_btn:
+            db["users"][edit_uid]["permissions"] = edit_perms
+            if edit_new_pw:
+                db["users"][edit_uid]["password_hash"] = hash_pw(edit_new_pw)
+            save_db(db)
+            st.success(f"✅ Updated {edit_user['name']}")
+            st.rerun()
+        if del_btn:
+            del db["users"][edit_uid]
+            save_db(db)
+            st.success(f"🗑️ Deleted {edit_user['name']}")
+            st.rerun()
+    else:
+        st.info("No users added yet. Use the form above to add one.")
+
+    st.markdown("---")
+
+    # ── Backup & Restore ─────────────────────────────────────────
+    st.subheader("💾 Backup & Restore")
+    bk_col1, bk_col2 = st.columns(2)
+    with bk_col1:
+        st.markdown("**Export** — download all users & settings as a backup file.")
         db_json = json.dumps(db, indent=2)
         st.download_button("⬇️ Download Backup (JSON)", data=db_json,
                            file_name=f"tiktok_studio_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                           mime="application/json", key="admin_backup")
-
-        st.markdown("---")
-        st.subheader("Import User Database")
-        st.markdown("Upload a previously exported backup to restore users and settings.")
-        restore_file = st.file_uploader("Upload backup JSON", type=["json"], key="admin_restore")
+                           mime="application/json", key="admin_backup_dl")
+    with bk_col2:
+        st.markdown("**Import** — restore from a previously exported backup.")
+        restore_file = st.file_uploader("Upload backup JSON", type=["json"], key="admin_restore_file")
         if restore_file:
             try:
                 restore_data = json.loads(restore_file.getvalue().decode())
                 if "users" in restore_data:
-                    st.json(restore_data)
-                    if st.button("✅ Restore This Backup", use_container_width=True):
+                    if st.button("✅ Restore This Backup", use_container_width=True, key="admin_restore_btn"):
                         save_db(restore_data)
-                        st.success("✅ Database restored! Reloading...")
+                        st.success("✅ Database restored!")
                         st.rerun()
                 else:
-                    st.error("Invalid backup file — missing 'users' key.")
+                    st.error("Invalid backup — missing 'users' key.")
             except Exception as e:
-                st.error(f"Failed to parse backup: {e}")
+                st.error(f"Failed to parse: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
